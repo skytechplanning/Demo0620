@@ -52,6 +52,258 @@
   <canvas id="gameCanvas" width="640" height="480">
     Canvasタグをサポートしたブラウザでご覧ください。
   </canvas>
+  <p id="score">Score: 0</p>
+  <canvas id="nextCanvas" width="96" height="96" style="background:#222;margin-bottom:1rem;"></canvas>
   <p>上のキャンバス領域にゲームが表示されます。</p>
+  <script>
+  // DOMContentLoaded ensures the script runs after the page is ready
+  document.addEventListener('DOMContentLoaded', () => {
+    const COLS = 10;               // 横幅(列数)
+    const ROWS = 20;               // 高さ(行数)
+    const BLOCK = 24;              // 1マスのサイズ(px)
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const nextCanvas = document.getElementById('nextCanvas');
+    const nextCtx = nextCanvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+
+    // ボード情報を保持する2次元配列
+    let board = [];
+
+    // スコアや現在・次のブロックを保持
+    let score = 0;
+    let current = null;
+    let next = null;
+    let dropInterval = 500;        // 自動落下間隔(ms)
+    let dropTimer = null;
+
+    // ブロックの形状定義(4回転分の座標)
+    const PIECES = [
+      {
+        color: 'cyan',
+        blocks: [
+          [[0,1],[1,1],[2,1],[3,1]],
+          [[2,0],[2,1],[2,2],[2,3]],
+          [[0,2],[1,2],[2,2],[3,2]],
+          [[1,0],[1,1],[1,2],[1,3]]
+        ]
+      },
+      {
+        color: 'blue',
+        blocks: [
+          [[0,0],[0,1],[1,1],[2,1]],
+          [[1,0],[2,0],[1,1],[1,2]],
+          [[0,1],[1,1],[2,1],[2,2]],
+          [[1,0],[1,1],[0,2],[1,2]]
+        ]
+      },
+      {
+        color: 'orange',
+        blocks: [
+          [[2,0],[0,1],[1,1],[2,1]],
+          [[1,0],[1,1],[1,2],[2,2]],
+          [[0,1],[1,1],[2,1],[0,2]],
+          [[0,0],[1,0],[1,1],[1,2]]
+        ]
+      },
+      {
+        color: 'yellow',
+        blocks: [
+          [[1,0],[2,0],[1,1],[2,1]],
+          [[1,0],[2,0],[1,1],[2,1]],
+          [[1,0],[2,0],[1,1],[2,1]],
+          [[1,0],[2,0],[1,1],[2,1]]
+        ]
+      },
+      {
+        color: 'green',
+        blocks: [
+          [[1,0],[2,0],[0,1],[1,1]],
+          [[1,0],[1,1],[2,1],[2,2]],
+          [[1,1],[2,1],[0,2],[1,2]],
+          [[0,0],[0,1],[1,1],[1,2]]
+        ]
+      },
+      {
+        color: 'purple',
+        blocks: [
+          [[1,0],[0,1],[1,1],[2,1]],
+          [[1,0],[1,1],[2,1],[1,2]],
+          [[0,1],[1,1],[2,1],[1,2]],
+          [[1,0],[0,1],[1,1],[1,2]]
+        ]
+      },
+      {
+        color: 'red',
+        blocks: [
+          [[0,0],[1,0],[1,1],[2,1]],
+          [[2,0],[1,1],[2,1],[1,2]],
+          [[0,1],[1,1],[1,2],[2,2]],
+          [[1,0],[0,1],[1,1],[0,2]]
+        ]
+      }
+    ];
+
+    // 盤面を初期化
+    function initBoard() {
+      board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    }
+
+    // 新しいブロックを生成
+    function randomPiece() {
+      const type = PIECES[Math.floor(Math.random() * PIECES.length)];
+      return {
+        x: 3,
+        y: -1,
+        r: 0,
+        color: type.color,
+        blocks: type.blocks
+      };
+    }
+
+    // ブロックを描画
+    function drawPiece(piece, context = ctx, offsetX = 0, offsetY = 0) {
+      context.fillStyle = piece.color;
+      piece.blocks[piece.r].forEach(([x, y]) => {
+        context.fillRect((piece.x + x + offsetX) * BLOCK, (piece.y + y + offsetY) * BLOCK, BLOCK, BLOCK);
+        context.strokeStyle = '#111';
+        context.strokeRect((piece.x + x + offsetX) * BLOCK, (piece.y + y + offsetY) * BLOCK, BLOCK, BLOCK);
+      });
+    }
+
+    // ゲーム盤を描画
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const cell = board[y][x];
+          if (cell) {
+            ctx.fillStyle = cell;
+            ctx.fillRect(x * BLOCK, y * BLOCK, BLOCK, BLOCK);
+            ctx.strokeStyle = '#111';
+            ctx.strokeRect(x * BLOCK, y * BLOCK, BLOCK, BLOCK);
+          }
+        }
+      }
+    }
+
+    // 有効な位置か判定
+    function isValid(piece, offsetX = 0, offsetY = 0, r = piece.r) {
+      return piece.blocks[r].every(([x, y]) => {
+        const nx = piece.x + x + offsetX;
+        const ny = piece.y + y + offsetY;
+        return (
+          nx >= 0 && nx < COLS && ny < ROWS &&
+          (ny < 0 || !board[ny][nx])
+        );
+      });
+    }
+
+    // ブロックを固定
+    function merge(piece) {
+      piece.blocks[piece.r].forEach(([x, y]) => {
+        const nx = piece.x + x;
+        const ny = piece.y + y;
+        if (ny >= 0) board[ny][nx] = piece.color;
+      });
+    }
+
+    // ラインが揃っているか確認し消去
+    function clearLines() {
+      let lines = 0;
+      outer: for (let y = ROWS - 1; y >= 0; y--) {
+        for (let x = 0; x < COLS; x++) {
+          if (!board[y][x]) continue outer;
+        }
+        board.splice(y, 1);
+        board.unshift(Array(COLS).fill(null));
+        lines++;
+        y++; // 同じ行を再チェック
+      }
+      if (lines) {
+        score += lines;
+        updateScore();
+      }
+    }
+
+    // 次のブロックを表示
+    function drawNext() {
+      nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+      if (next) drawPiece({ ...next, x: 1, y: 1 }, nextCtx);
+    }
+
+    // スコア表示更新
+    function updateScore() {
+      scoreEl.textContent = `Score: ${score}`;
+    }
+
+    // 新しいブロックを出現させる
+    function spawn() {
+      current = next || randomPiece();
+      current.x = 3;
+      current.y = -1;
+      next = randomPiece();
+      drawNext();
+      if (!isValid(current)) {
+        clearInterval(dropTimer);
+        alert('Game Over');
+      }
+    }
+
+    // ブロックを1マス落とす
+    function moveDown() {
+      if (isValid(current, 0, 1)) {
+        current.y++;
+      } else {
+        merge(current);
+        clearLines();
+        spawn();
+      }
+      draw();
+    }
+
+    // 描画処理
+    function draw() {
+      drawBoard();
+      if (current) drawPiece(current);
+    }
+
+    // キーボード操作
+    document.addEventListener('keydown', e => {
+      if (!current) return;
+      switch (e.key) {
+        case 'ArrowLeft':
+          if (isValid(current, -1, 0)) current.x--;
+          break;
+        case 'ArrowRight':
+          if (isValid(current, 1, 0)) current.x++;
+          break;
+        case 'ArrowUp':
+          const nr = (current.r + 1) % 4;
+          if (isValid(current, 0, 0, nr)) current.r = nr;
+          break;
+        case 'ArrowDown':
+          moveDown();
+          return; // 即描画されるのでこのまま終了
+      }
+      draw();
+    });
+
+    // ゲーム開始処理
+    function start() {
+      initBoard();
+      score = 0;
+      updateScore();
+      next = randomPiece();
+      spawn();
+      draw();
+      dropTimer = setInterval(moveDown, dropInterval);
+    }
+
+    start();
+  });
+  </script>
 </body>
 </html>
