@@ -119,9 +119,7 @@ const COLORS = {
 };
 
 // ==================== ゲームフィールド ====================
-// 空のフィールドを生成
-actionInitField();
-let grid = createMatrix(COLS, ROWS);
+let grid;
 
 function createMatrix(w, h) {
   const matrix = [];
@@ -134,6 +132,10 @@ function createMatrix(w, h) {
 function actionInitField(){
   grid = createMatrix(COLS, ROWS);
 }
+
+// 初期フィールドを生成
+actionInitField();
+
 
 // ==================== ピース処理 ====================
 function randomPiece() {
