@@ -1,3 +1,3 @@
 # Demo0620
 
-This project contains a simple web page with a canvas for game development demos. The design has been refreshed with a modern style aimed at high school students.
+This project now contains a simple Tetris-like game implemented with HTML5 Canvas and JavaScript. Open `index.html` in a modern browser and use the arrow keys to play.

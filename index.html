@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>仙台育英学園 沖縄高等学校 IT総合授業</title>
+<title>テトリス風ゲームデモ</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
 <style>
   body {
@@ -46,12 +46,281 @@
 </head>
 <body>
   <header>
-    <h1>仙台育英学園 沖縄高等学校 IT総合授業</h1>
+    <h1>テトリス風ゲーム</h1>
     <p>AIと一緒にゲーム制作！</p>
   </header>
   <canvas id="gameCanvas" width="640" height="480">
     Canvasタグをサポートしたブラウザでご覧ください。
   </canvas>
-  <p>上のキャンバス領域にゲームが表示されます。</p>
+  <p>キーボードで操作してください。← → 移動、↑ 回転、↓ 高速落下</p>
+<script>
+// ==================== 基本設定 ====================
+const canvas = document.getElementById('gameCanvas');
+const context = canvas.getContext('2d');
+const COLS = 10;            // フィールドの横幅
+const ROWS = 20;            // フィールドの縦幅
+const BLOCK_SIZE = 24;      // 1マスのサイズ(px)
+const FIELD_X = 0;          // フィールド描画位置X
+const FIELD_Y = 0;          // フィールド描画位置Y
+
+// スコアや次のブロック表示用に右側余白を利用
+context.scale(1, 1);
+let score = 0;              // 得点
+let gameOver = false;       // ゲーム終了フラグ
+
+// ==================== テトリミノの定義 ====================
+// それぞれ4x4のマトリックスで形を定義
+const SHAPES = {
+  'I': [
+    [0,0,0,0],
+    [1,1,1,1],
+    [0,0,0,0],
+    [0,0,0,0]
+  ],
+  'J': [
+    [1,0,0],
+    [1,1,1],
+    [0,0,0]
+  ],
+  'L': [
+    [0,0,1],
+    [1,1,1],
+    [0,0,0]
+  ],
+  'O': [
+    [1,1],
+    [1,1]
+  ],
+  'S': [
+    [0,1,1],
+    [1,1,0],
+    [0,0,0]
+  ],
+  'T': [
+    [0,1,0],
+    [1,1,1],
+    [0,0,0]
+  ],
+  'Z': [
+    [1,1,0],
+    [0,1,1],
+    [0,0,0]
+  ]
+};
+
+const COLORS = {
+  'I': '#00f0f0',
+  'J': '#0000f0',
+  'L': '#f0a000',
+  'O': '#f0f000',
+  'S': '#00f000',
+  'T': '#a000f0',
+  'Z': '#f00000'
+};
+
+// ==================== ゲームフィールド ====================
+// 空のフィールドを生成
+actionInitField();
+let grid = createMatrix(COLS, ROWS);
+
+function createMatrix(w, h) {
+  const matrix = [];
+  for (let y = 0; y < h; y++) {
+    matrix.push(new Array(w).fill(0));
+  }
+  return matrix;
+}
+
+function actionInitField(){
+  grid = createMatrix(COLS, ROWS);
+}
+
+// ==================== ピース処理 ====================
+function randomPiece() {
+  const types = 'IJLOSTZ';
+  const type = types[Math.floor(Math.random() * types.length)];
+  return {
+    x: 3,
+    y: 0,
+    shape: SHAPES[type].map(row => row.slice()),
+    color: COLORS[type],
+    type
+  };
+}
+
+let current = randomPiece();
+let next = randomPiece();
+
+function rotate(matrix) {
+  const N = matrix.length;
+  const result = [];
+  for (let y = 0; y < N; y++) {
+    result[y] = [];
+    for (let x = 0; x < N; x++) {
+      result[y][x] = matrix[N - x - 1][y];
+    }
+  }
+  return result;
+}
+
+function collide(grid, piece) {
+  for (let y = 0; y < piece.shape.length; y++) {
+    for (let x = 0; x < piece.shape[y].length; x++) {
+      if (piece.shape[y][x]) {
+        const nx = piece.x + x;
+        const ny = piece.y + y;
+        if (ny >= ROWS || nx < 0 || nx >= COLS || grid[ny][nx]) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function merge(grid, piece) {
+  for (let y = 0; y < piece.shape.length; y++) {
+    for (let x = 0; x < piece.shape[y].length; x++) {
+      if (piece.shape[y][x]) {
+        grid[piece.y + y][piece.x + x] = piece.color;
+      }
+    }
+  }
+}
+
+function sweep() {
+  let rowCount = 0;
+  outer: for (let y = ROWS - 1; y >= 0; y--) {
+    for (let x = 0; x < COLS; x++) {
+      if (!grid[y][x]) {
+        continue outer;
+      }
+    }
+    const row = grid.splice(y, 1)[0].fill(0);
+    grid.unshift(row);
+    y++;
+    rowCount++;
+  }
+  if (rowCount > 0) {
+    score += rowCount * 10; // 1行10点
+  }
+}
+
+function resetPiece() {
+  current = next;
+  next = randomPiece();
+  current.x = 3;
+  current.y = 0;
+  if (collide(grid, current)) {
+    gameOver = true;
+  }
+}
+
+// ==================== 描画処理 ====================
+function drawCell(x, y, color) {
+  context.fillStyle = color;
+  context.fillRect(FIELD_X + x * BLOCK_SIZE, FIELD_Y + y * BLOCK_SIZE, BLOCK_SIZE - 1, BLOCK_SIZE - 1);
+}
+
+function drawMatrix(matrix, offset, color) {
+  for (let y = 0; y < matrix.length; y++) {
+    for (let x = 0; x < matrix[y].length; x++) {
+      if (matrix[y][x]) {
+        drawCell(x + offset.x, y + offset.y, color);
+      }
+    }
+  }
+}
+
+function drawField() {
+  context.fillStyle = '#111';
+  context.fillRect(FIELD_X, FIELD_Y, COLS * BLOCK_SIZE, ROWS * BLOCK_SIZE);
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (grid[y][x]) {
+        drawCell(x, y, grid[y][x]);
+      }
+    }
+  }
+}
+
+function drawNext() {
+  context.fillStyle = '#222';
+  context.fillRect(300, 50, 120, 120);
+  drawMatrix(next.shape, {x: 13, y: 3}, next.color);
+  context.fillStyle = '#fff';
+  context.fillText('NEXT', 330, 45);
+}
+
+function drawScore() {
+  context.fillStyle = '#fff';
+  context.fillText('SCORE: ' + score, 300, 200);
+}
+
+function draw() {
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  drawField();
+  drawMatrix(current.shape, {x: current.x, y: current.y}, current.color);
+  drawNext();
+  drawScore();
+  if (gameOver) {
+    context.fillStyle = 'rgba(0,0,0,0.7)';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#fff';
+    context.font = '48px Poppins';
+    context.fillText('GAME OVER', 150, canvas.height / 2);
+  }
+}
+
+// ==================== 操作処理 ====================
+document.addEventListener('keydown', event => {
+  if (gameOver) return;
+  if (event.key === 'ArrowLeft') {
+    current.x--;
+    if (collide(grid, current)) current.x++;
+  } else if (event.key === 'ArrowRight') {
+    current.x++;
+    if (collide(grid, current)) current.x--;
+  } else if (event.key === 'ArrowUp') {
+    const rotated = rotate(current.shape);
+    const oldX = current.x;
+    // 回転で壁にはまったら少しずらす
+    current.x += Math.floor(current.shape.length / 2);
+    current.shape = rotated;
+    if (collide(grid, current)) {
+      current.x = oldX;
+      current.shape = rotate(rotate(rotate(current.shape)));
+    }
+  } else if (event.key === 'ArrowDown') {
+    drop();
+  }
+});
+
+function drop() {
+  current.y++;
+  if (collide(grid, current)) {
+    current.y--;
+    merge(grid, current);
+    sweep();
+    resetPiece();
+  }
+  dropCounter = 0;
+}
+
+let dropCounter = 0;
+let dropInterval = 1000; // 自動落下速度(ms)
+let lastTime = 0;
+function update(time = 0) {
+  const delta = time - lastTime;
+  lastTime = time;
+  dropCounter += delta;
+  if (dropCounter > dropInterval && !gameOver) {
+    drop();
+  }
+  draw();
+  requestAnimationFrame(update);
+}
+update();
+</script>
 </body>
 </html>
