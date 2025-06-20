@@ -286,12 +286,16 @@ document.addEventListener('keydown', event => {
   } else if (event.key === 'ArrowUp') {
     const rotated = rotate(current.shape);
     const oldX = current.x;
-    // 回転で壁にはまったら少しずらす
-    current.x += Math.floor(current.shape.length / 2);
     current.shape = rotated;
     if (collide(grid, current)) {
-      current.x = oldX;
-      current.shape = rotate(rotate(rotate(current.shape)));
+      current.x = oldX - 1;
+      if (collide(grid, current)) {
+        current.x = oldX + 1;
+        if (collide(grid, current)) {
+          current.shape = rotate(rotate(rotate(current.shape)));
+          current.x = oldX;
+        }
+      }
     }
   } else if (event.key === 'ArrowDown') {
     drop();
